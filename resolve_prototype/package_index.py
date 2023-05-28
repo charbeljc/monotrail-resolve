@@ -1,3 +1,4 @@
+import io
 import logging
 import time
 from collections import defaultdict
@@ -120,6 +121,45 @@ async def get_releases(
         assert cached
         logger.debug(f"Not modified, using cached for {url}")
         return parse_releases_data(project, cached)
+    else:
+        response.raise_for_status()
+        raise RuntimeError(f"Unexpected status: {response.status_code}")
+
+
+async def get_releases_raw(
+    client: AsyncClient, project: str, cache: Cache, refresh: bool = False
+) -> Dict[pep440_rs.Version, List[pypi_releases.File]]:
+    assert "/" not in normalize(project)
+    url = (
+        f"https://pypi.org/simple/{normalize(project)}/"
+        + "?format=application/vnd.pypi.simple.v1+json"
+    )
+
+    # normalize removes all dots in the name
+    cached = cache.get("pypi_simple_releases", normalize(project) + ".json")
+    if cached and not refresh and not cache.refresh_versions:
+        logger.debug(f"Using cached releases for {url}")
+        return cached
+
+    etag = cache.get("pypi_simple_releases", normalize(project) + ".etag")
+    logger.debug(f"Querying releases from {url}")
+    if etag:
+        headers = {"user-agent": user_agent, "If-None-Match": etag.strip()}
+    else:
+        headers = {"user-agent": user_agent}
+
+    response = await client.get(url, headers=headers)
+    if response.status_code == 200:
+        logger.debug(f"New response for {url}")
+        data = response.text
+        cache.set("pypi_simple_releases", normalize(project) + ".json", data)
+        if etag := response.headers.get("etag"):
+            cache.set("pypi_simple_releases", normalize(project) + ".etag", etag)
+        return data
+    elif response.status_code == 304:
+        assert cached
+        logger.debug(f"Not modified, using cached for {url}")
+        return cached
     else:
         response.raise_for_status()
         raise RuntimeError(f"Unexpected status: {response.status_code}")

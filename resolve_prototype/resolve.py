@@ -105,9 +105,9 @@ def parse_requirement_fixup(
 
 
 class State:
-    root_requirement: Requirement
+    root_requirements: list[Requirement]
     user_constraints: Dict[NormalizedName, List[Requirement]]
-
+    root_requirements: Optional[list[Requirement]]
     # The list of packages which we need to reevaluate
     queue: List[NormalizedName]
     # Process after fetching additional information
@@ -147,10 +147,15 @@ class State:
     # zip for a DummyExecutor
     executor: Type[Executor]
 
-    def __init__(self, root_requirement: Requirement, executor: Type[Executor]):
-        self.root_requirement = root_requirement
-        self.user_constraints = {normalize(root_requirement.name): [root_requirement]}
-        self.queue = [normalize(root_requirement.name)]
+    def __init__(self, root_requirements: list[Requirement], executor: Type[Executor]):
+        self.root_requirements = root_requirements
+        self.user_constraints = {
+            normalize(root_requirement.name): [root_requirement]
+            for root_requirement in root_requirements
+        }
+        self.queue = [
+            normalize(root_requirement.name) for root_requirement in root_requirements
+        ]
         self.fetch_versions = set()
         self.fetch_metadata = {}
         self.resolved_sdists = set()
@@ -629,7 +634,7 @@ async def fetch_versions_and_metadata(
 
 
 async def resolve(
-    root_requirement: Requirement,
+    root_requirements: list[Requirement],
     requires_python: VersionSpecifier,
     cache: Cache,
     download_wheels: bool = True,
@@ -650,7 +655,7 @@ async def resolve(
     if Version("4.0") in requires_python:
         python_versions.append(Version("4.0"))
 
-    state = State(root_requirement, executor)
+    state = State(root_requirements, executor)
 
     start = time.time()
 
@@ -706,7 +711,7 @@ async def resolve(
         break
 
     end = time.time()
-    print(f"resolution ours took {end - start:.3f}s")
+    print(f"resolution ours took {end - start:.3f}s", file=sys.stderr)
 
     package_data = {}
     for name, (version, _extras) in sorted(state.candidates.items()):
@@ -721,7 +726,17 @@ async def resolve(
             extras=state.candidates[name][1],
         )
 
-    return Resolution([root_requirement], package_data)
+    return Resolution(root_requirements, package_data)
+
+
+def freeze2(resolution: Resolution) -> str:
+    """Write out in the same format as `pip freeze`"""
+    # We want to have a trailing newline
+    lines = [
+        f"{package_data.unnormalized_name}=={version}\n"
+        for (name, version), package_data in resolution.package_data.items()
+    ]
+    return "".join(lines)
 
 
 def freeze(resolution: Resolution, root_requirement: Requirement) -> str:
@@ -753,16 +768,20 @@ def freeze(resolution: Resolution, root_requirement: Requirement) -> str:
 
 
 def main():
-    logging.basicConfig(level=logging.INFO)
-    logging.captureWarnings(True)
-
     parser = ArgumentParser()
+    parser.add_argument("--quiet", action="store_true")
     parser.add_argument("--refresh-versions", action="store_true")
     parser.add_argument("--requires-python", default=">= 3.7")
-    parser.add_argument("requirement")
-    args = parser.parse_args()
+    parser.add_argument("requirement", nargs="+")
 
-    root_requirement = Requirement(args.requirement)
+    args = parser.parse_args()
+    if args.quiet:
+        logging.basicConfig(level=logging.WARNING)
+    else:
+        logging.basicConfig(level=logging.INFO)
+    logging.captureWarnings(True)
+
+    root_requirements = [Requirement(r) for r in args.requirement]
     # root_requirement = Requirement("meine_stadt_transparent")
     # root_requirement = Requirement(
     #    "transformers[torch,sentencepiece,tokenizers,torch-speech,vision,"
@@ -773,19 +792,20 @@ def main():
 
     requires_python = VersionSpecifier(args.requires_python)
 
-    if len(sys.argv) == 2:
-        root_requirement = Requirement(sys.argv[1])
     start = time.time()
     resolution: Resolution = asyncio.run(
         resolve(
-            root_requirement,
+            root_requirements,
             requires_python,
             Cache(default_cache_dir, refresh_versions=args.refresh_versions),
         )
     )
-    print(freeze(resolution, root_requirement))
+    if len(root_requirements) == 1:
+        print(freeze(resolution, root_requirements[0]))
+    else:
+        print(freeze2(resolution))
     end = time.time()
-    print(f"Took {end - start:.2f}s")
+    print(f"Took {end - start:.2f}s", file=sys.stderr)
 
 
 if __name__ == "__main__":

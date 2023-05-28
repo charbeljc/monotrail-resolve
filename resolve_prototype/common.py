@@ -61,6 +61,17 @@ class Cache:
         except FileNotFoundError:
             return None
 
+    def get_file(self, bucket: str, name: str) -> Optional[str]:
+        if not self.read:
+            return None
+
+        filename = self.filename(bucket, name)
+        # Avoid an expensive is_file call
+        try:
+            return open(filename)
+        except FileNotFoundError:
+            return None
+
     def set(self, bucket: str, name: str, content: str):
         if not self.write:
             return False
