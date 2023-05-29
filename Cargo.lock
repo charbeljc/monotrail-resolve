@@ -316,6 +316,8 @@ dependencies = [
 [[package]]
 name = "pubgrub"
 version = "0.2.1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "cdd14552ad5f5d743a323c10d576f26822a044355d6601f377d813ece46f38fd"
 dependencies = [
  "rustc-hash",
  "serde",
