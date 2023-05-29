@@ -2,6 +2,7 @@
 build
 dist
 *.so
+*.pyd
 .cargo
 .venv*
 __pycache__
