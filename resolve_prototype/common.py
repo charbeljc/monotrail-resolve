@@ -57,7 +57,7 @@ class Cache:
         filename = self.filename(bucket, name)
         # Avoid an expensive is_file call
         try:
-            return filename.read_text()
+            return filename.read_text(encoding='utf-8')
         except FileNotFoundError:
             return None
 
@@ -75,11 +75,11 @@ class Cache:
     def set(self, bucket: str, name: str, content: str):
         if not self.write:
             return False
-        filename = self.filename(bucket, name)
+        filename: Path = self.filename(bucket, name)
         filename.parent.mkdir(exist_ok=True, parents=True)
         # tempfile to avoid broken cache entry
         characters = "abcdefghijklmnopqrstuvwxyz0123456789_"
         temp_name = "".join(random.choices(characters, k=8))
         temp_file = filename.parent.joinpath(temp_name)
-        temp_file.write_text(content)
+        temp_file.write_text(content, encoding='utf-8')
         os.replace(temp_file, filename)
